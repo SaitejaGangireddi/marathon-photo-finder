@@ -4,7 +4,7 @@ import * as faceapi from '@vladmandic/face-api';
 
 const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
 
-export default function App() {
+export default function Home() {
   const [bib, setBib] = useState('');
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -12,10 +12,14 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
-      await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-      await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-      setStatus('Ready to search');
+      try {
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        setStatus('Ready to search');
+      } catch (e) {
+        setStatus('Error loading AI models. Please refresh.');
+      }
     };
     init();
   }, []);
@@ -43,7 +47,7 @@ export default function App() {
     const result = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
 
     if (!result) {
-      alert('No clear face detected in the uploaded selfie.');
+      alert('No clear face detected in the selfie.');
       setLoading(false);
       setStatus('Ready');
       return;
@@ -62,30 +66,33 @@ export default function App() {
   };
 
   return (
-    
-      Find Your Marathon Photos
-      Status: {status}
+    <main style={{ maxWidth: '640px', margin: '40px auto', padding: '16px', fontFamily: 'system-ui, sans-serif' }}>
+      <h2>Find Your Marathon Photos</h2>
+      <p style={{ color: '#666', fontSize: '14px' }}>Status: {status}</p>
 
-      
-         setBib(e.target.value)}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+        <input
+          placeholder="Enter Bib Number"
+          value={bib}
+          onChange={(e) => setBib(e.target.value)}
           style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
         />
-        Search Bib
-      
+        <button onClick={searchBib} style={{ padding: '10px 16px', cursor: 'pointer' }}>Search Bib</button>
+      </div>
 
-      
-        Or Upload a Selfie:
-        
-      
+      <div style={{ padding: '16px', border: '2px dashed #ccc', borderRadius: '8px', textAlign: 'center', marginBottom: '24px' }}>
+        <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Or Upload a Selfie:</label>
+        <input type="file" accept="image/*" onChange={searchSelfie} />
+      </div>
 
-      {loading && Processing search...}
+      {loading && <p>Processing search...</p>}
 
-      
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
         {photos.map((src, i) => (
-          
+          <img key={i} src={src} alt="Runner" style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '6px' }} />
         ))}
-      
-      {photos.length === 0 && !loading && No photos found yet.}
-    
+      </div>
+      {photos.length === 0 && !loading && <p style={{ color: '#888' }}>No photos found yet.</p>}
+    </main>
   );
 }
