@@ -23,7 +23,7 @@ export async function POST(req) {
     if (type === 'face') {
       const { data, error } = await supabase.rpc('match_face', {
         query_embedding: embedding,
-        match_threshold: 0.58, // Allows matches across accessories (sunglasses/lighting shifts)
+        match_threshold: 0.52, // Allows matches across accessories (sunglasses/lighting shifts)
         match_count: 25
       });
 
