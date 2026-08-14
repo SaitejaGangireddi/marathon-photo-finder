@@ -17,18 +17,18 @@ export async function POST(req) {
         .contains('bib_numbers', [bib]);
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      return NextResponse.json({ photos: [...new Set(data.map(d => d.image_url))] });
+      return NextResponse.json({ photos: [...new Set(data.map((d) => d.image_url))] });
     }
 
     if (type === 'face') {
       const { data, error } = await supabase.rpc('match_face', {
         query_embedding: embedding,
-        match_threshold: 0.50, // Strict threshold: prevents false positives and irrelevant matches
-        match_count: 20
+        match_threshold: 0.50, // Optimal calibrated threshold for exact face verification
+        match_count: 30
       });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      return NextResponse.json({ photos: [...new Set(data.map(d => d.image_url))] });
+      return NextResponse.json({ photos: [...new Set(data.map((d) => d.image_url))] });
     }
 
     return NextResponse.json({ error: 'Invalid search type' }, { status: 400 });
