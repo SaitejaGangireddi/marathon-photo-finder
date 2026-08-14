@@ -1,3 +1,1 @@
 # marathon-photo-finder
-
-
