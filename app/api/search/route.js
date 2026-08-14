@@ -23,8 +23,8 @@ export async function POST(req) {
     if (type === 'face') {
       const { data, error } = await supabase.rpc('match_face', {
         query_embedding: embedding,
-        match_threshold: 0.60, // Accommodates masks, sunglasses, and group shots
-        match_count: 50
+        match_threshold: 0.50, // Strict threshold: prevents false positives and irrelevant matches
+        match_count: 20
       });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
