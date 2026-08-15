@@ -23,17 +23,13 @@ export async function POST(req) {
     if (type === 'face') {
       const { data, error } = await supabase.rpc('match_face', {
         query_embedding: embedding,
-        // Set to 0.46 for strict filtering (filters out non-matching strangers)
-        match_threshold: 0.46,
-        match_count: 30
+        // Set to 0.38: strictly keeps only the same person and eliminates family/stranger false matches
+        match_threshold: 0.38,
+        match_count: 50
       });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-      // Optional: console.log distances to see exact match scores in your terminal/Vercel logs
-      console.log('Match results with distances:', data);
-
-      // Return unique matching photos
       const uniquePhotos = [...new Set(data.map(d => d.image_url))];
       return NextResponse.json({ photos: uniquePhotos });
     }
