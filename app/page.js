@@ -18,6 +18,7 @@ export default function Home() {
       setStatus('Loading models...');
       await Promise.all([
         window.faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+        window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
         window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
         window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
       ]);
@@ -29,34 +30,34 @@ export default function Home() {
     }
   };
 
-  // Helper to read and normalize mobile phone photos to upright canvas
-  const processMobileImage = (file) => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 1200; // Safe resolution for mobile WebGL memory
-        let { width, height } = img;
+  // Robust image pre-processing for Mobile Safari & Android Chrome
+  const processImageForMobile = async (file) => {
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      bitmap = await createImageBitmap(file);
+    }
 
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
+    const maxDim = 800; // Optimal safe size for mobile WebGL memory
+    let { width, height } = bitmap;
 
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas);
-      };
-      img.onerror = reject;
-      img.src = URL.createObjectURL(file);
-    });
+    if (width > maxDim || height > maxDim) {
+      if (width > height) {
+        height = Math.round((height * maxDim) / width);
+        width = maxDim;
+      } else {
+        width = Math.round((width * maxDim) / height);
+        height = maxDim;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    return canvas;
   };
 
   const searchBib = async (e) => {
@@ -88,17 +89,25 @@ export default function Home() {
     if (!file || !window.faceapi || !modelReady) return;
 
     setLoading(true);
-    setStatus('Scanning photo...');
+    setStatus('Analyzing photo...');
     setPhotos([]);
 
     try {
-      // Normalize mobile image on canvas before running AI model
-      const canvas = await processMobileImage(file);
+      const canvas = await processImageForMobile(file);
 
-      const detection = await window.faceapi
-        .detectSingleFace(canvas, new window.faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+      // Primary detection: SSD MobileNet
+      let detection = await window.faceapi
+        .detectSingleFace(canvas, new window.faceapi.SsdMobilenetv1Options({ minConfidence: 0.25 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
+
+      // Mobile Fallback: TinyFaceDetector if SSD was blocked by mobile GPU shaders
+      if (!detection) {
+        detection = await window.faceapi
+          .detectSingleFace(canvas, new window.faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.25 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+      }
 
       if (!detection) {
         setStatus('No face detected. Please try another front-facing photo.');
@@ -106,7 +115,7 @@ export default function Home() {
         return;
       }
 
-      setStatus('Searching database for matches...');
+      setStatus('Searching database...');
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,7 +149,7 @@ export default function Home() {
           <strong>Status:</strong> {status}
         </p>
 
-        {/* BIB Search Form */}
+        {/* BIB Search */}
         <form onSubmit={searchBib} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
           <input
             type="text"
