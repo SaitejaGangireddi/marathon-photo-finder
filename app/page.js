@@ -29,6 +29,36 @@ export default function Home() {
     }
   };
 
+  // Helper to read and normalize mobile phone photos to upright canvas
+  const processMobileImage = (file) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 1200; // Safe resolution for mobile WebGL memory
+        let { width, height } = img;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas);
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const searchBib = async (e) => {
     e?.preventDefault();
     if (!bib.trim()) return;
@@ -58,18 +88,20 @@ export default function Home() {
     if (!file || !window.faceapi || !modelReady) return;
 
     setLoading(true);
-    setStatus('Detecting face...');
+    setStatus('Scanning photo...');
     setPhotos([]);
 
     try {
-      const img = await window.faceapi.bufferToImage(file);
+      // Normalize mobile image on canvas before running AI model
+      const canvas = await processMobileImage(file);
+
       const detection = await window.faceapi
-        .detectSingleFace(img, new window.faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+        .detectSingleFace(canvas, new window.faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
       if (!detection) {
-        setStatus('No face found in uploaded selfie. Try another photo.');
+        setStatus('No face detected. Please try another front-facing photo.');
         setLoading(false);
         return;
       }
@@ -89,7 +121,7 @@ export default function Home() {
       setStatus(json.photos?.length ? `Found ${json.photos.length} photo(s)` : 'No matching photos found.');
     } catch (err) {
       console.error(err);
-      setStatus('Search failed.');
+      setStatus('Search failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -128,7 +160,7 @@ export default function Home() {
 
         {/* Selfie Upload */}
         <div style={{ padding: '20px', border: '2px dashed #cbd5e1', borderRadius: '8px', textAlign: 'center', marginBottom: '30px' }}>
-          <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>Upload Selfie:</p>
+          <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>Upload Selfie / Face Photo:</p>
           <input
             type="file"
             accept="image/*"
