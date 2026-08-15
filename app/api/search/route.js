@@ -1,38 +1,46 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+export const dynamic = 'force-dynamic';
 
-export async function POST(req) {
+export async function POST(req: NextRequest) {
   try {
-    const { type, bib, embedding } = await req.json();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://tfncwwpspdjndxjutgki.supabase.co';
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRmbmN3d3BzcGRqbmR4anV0Z2tpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4Njc3MzkyOCwiZXhwIjoyMTAyMzQ5OTI4fQ.5izcthsJq6cCbG0N0zCtqXARRLE-ezwzeBKp5jIf09c';
 
-    if (type === 'bib') {
-      const { data, error } = await supabase
-        .from('event_photos')
-        .select('image_url')
-        .contains('bib_numbers', [bib]);
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false },
+    });
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      return NextResponse.json({ photos: [...new Set(data.map(d => d.image_url))] });
-    }
+    const body = await req.json().catch(() => ({}));
+    const { embedding } = body;
 
-    if (type === 'face') {
-      const { data, error } = await supabase.rpc('match_face', {
+    // Vector similarity search if embedding array is present
+    if (embedding && Array.isArray(embedding) && embedding.length === 512) {
+      const { data, error } = await supabase.rpc('match_face_photos', {
         query_embedding: embedding,
-        match_threshold: 0.52, // 0.50 to 0.55 is standard for exact face match
-        match_count: 20
+        match_threshold: 0.35,
+        match_count: 50,
       });
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      return NextResponse.json({ photos: [...new Set(data.map(d => d.image_url))] });
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ photos: data || [] });
     }
 
-    return NextResponse.json({ error: 'Invalid search type' }, { status: 400 });
-  } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    // Default: Fetch latest indexed photos
+    const { data: photos, error: photoErr } = await supabase
+      .from('photos')
+      .select('id, image_url')
+      .limit(30);
+
+    if (photoErr) {
+      return NextResponse.json({ error: photoErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ photos: photos || [] });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
   }
 }
