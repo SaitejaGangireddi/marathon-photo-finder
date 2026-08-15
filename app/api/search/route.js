@@ -23,15 +23,27 @@ export async function POST(req) {
     if (type === 'face') {
       const { data, error } = await supabase.rpc('match_face', {
         query_embedding: embedding,
-        // Set to 0.38: strictly keeps only the same person and eliminates family/stranger false matches
-        match_threshold: 0.38,
+        // 0.40 Cosine Distance: Strict boundary that rejects family lookalikes while matching group photos
+        match_threshold: 0.40,
         match_count: 50
       });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-      const uniquePhotos = [...new Set(data.map(d => d.image_url))];
-      return NextResponse.json({ photos: uniquePhotos });
+      // Group by image_url and keep highest similarity score
+      const photoMap = new Map();
+      (data || []).forEach(item => {
+        if (!photoMap.has(item.image_url) || photoMap.get(item.image_url) < item.similarity) {
+          photoMap.set(item.image_url, item.similarity);
+        }
+      });
+
+      const uniqueResults = Array.from(photoMap.entries()).map(([url, score]) => ({
+        url,
+        confidence: Math.round(score * 100)
+      }));
+
+      return NextResponse.json({ results: uniqueResults });
     }
 
     return NextResponse.json({ error: 'Invalid search type' }, { status: 400 });
