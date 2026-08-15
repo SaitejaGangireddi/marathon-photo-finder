@@ -1,5 +1,7 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+
+import { useState } from 'react';
+import Script from 'next/script';
 
 const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
 
@@ -7,108 +9,200 @@ export default function Home() {
   const [bib, setBib] = useState('');
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState('Initializing AI models...');
-  const faceapiRef = useRef(null);
+  const [modelReady, setModelReady] = useState(false);
+  const [status, setStatus] = useState('Loading AI Models...');
 
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const faceapi = await import('@vladmandic/face-api');
-        faceapiRef.current = faceapi;
-        await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-        setStatus('Ready to search');
-      } catch (e) {
-        console.error(e);
-        setStatus('Error loading AI models. Please refresh.');
-      }
-    };
-    init();
-  }, []);
+  // Initialize face-api models from CDN
+  const initFaceApi = async () => {
+    try {
+      if (!window.faceapi) return;
+      setStatus('Loading neural network models...');
+      await Promise.all([
+        window.faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+        window.faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        window.faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      ]);
+      setModelReady(true);
+      setStatus('Ready to search');
+    } catch (e) {
+      console.error(e);
+      setStatus('Error loading AI models. Please refresh.');
+    }
+  };
 
-  const searchBib = async () => {
+  // Search by Bib Number
+  const searchBib = async (e) => {
+    e?.preventDefault();
     if (!bib.trim()) return;
     setLoading(true);
+    setStatus('Searching by BIB number...');
+    setPhotos([]);
+
     try {
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'bib', bib: bib.trim() })
+        body: JSON.stringify({ type: 'bib', bib: bib.trim() }),
       });
       const json = await res.json();
       setPhotos(json.photos || []);
+      setStatus(json.photos?.length ? `Found ${json.photos.length} photo(s)` : 'No photos found for this BIB.');
     } catch (err) {
-      alert('Search failed. Please try again.');
+      console.error(err);
+      setStatus('Search failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  // Search by Uploaded Selfie
   const searchSelfie = async (e) => {
-    const file = e.target.files[0];
-    if (!file || !faceapiRef.current) return;
+    const file = e.target.files?.[0];
+    if (!file || !window.faceapi || !modelReady) return;
+
     setLoading(true);
-    setStatus('Scanning face...');
+    setStatus('Analyzing facial landmarks...');
+    setPhotos([]);
 
     try {
-      const faceapi = faceapiRef.current;
-      const img = await faceapi.bufferToImage(file);
-      const result = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+      const img = await window.faceapi.bufferToImage(file);
+      
+      // High-accuracy face detection config
+      const options = new window.faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 });
+      const result = await window.faceapi
+        .detectSingleFace(img, options)
+        .withFaceLandmarks()
+        .withFaceDescriptor();
 
       if (!result) {
-        alert('No clear face detected in the selfie.');
+        setStatus('No clear face detected in the photo. Please try a clearer, front-facing selfie.');
         setLoading(false);
-        setStatus('Ready');
         return;
       }
 
-      setStatus('Searching photo database...');
+      setStatus('Matching face against race photos in database...');
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'face', embedding: Array.from(result.descriptor) })
+        body: JSON.stringify({
+          type: 'face',
+          embedding: Array.from(result.descriptor),
+        }),
       });
+
       const json = await res.json();
       setPhotos(json.photos || []);
+      setStatus(json.photos?.length ? `Found ${json.photos.length} photo(s)` : 'No matching photos found.');
     } catch (err) {
-      alert('Face search failed. Please try again.');
+      console.error(err);
+      setStatus('Face search failed. Please try again.');
     } finally {
       setLoading(false);
-      setStatus('Ready');
     }
   };
 
   return (
-    <main style={{ maxWidth: '640px', margin: '40px auto', padding: '16px', fontFamily: 'system-ui, sans-serif' }}>
-      <h2>Find Your Marathon Photos</h2>
-      <p style={{ color: '#666', fontSize: '14px' }}>Status: {status}</p>
+    <>
+      <Script
+        src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"
+        onLoad={initFaceApi}
+      />
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-        <input
-          placeholder="Enter Bib Number"
-          value={bib}
-          onChange={(e) => setBib(e.target.value)}
-          style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
-        />
-        <button onClick={searchBib} style={{ padding: '10px 16px', cursor: 'pointer', backgroundColor: '#0070f3', color: '#fff', border: 'none', borderRadius: '6px' }}>
-          Search Bib
-        </button>
-      </div>
+      <main style={{ maxWidth: '800px', margin: '40px auto', padding: '0 20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+        <h1 style={{ textAlign: 'center', marginBottom: '8px' }}>Find Your Marathon Photos</h1>
+        <p style={{ textAlign: 'center', color: modelReady ? '#16a34a' : '#64748b', margin: '0 0 24px 0', fontSize: '15px' }}>
+          <strong>Status:</strong> {status}
+        </p>
 
-      <div style={{ padding: '16px', border: '2px dashed #ccc', borderRadius: '8px', textAlign: 'center', marginBottom: '24px', backgroundColor: '#fff' }}>
-        <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Or Upload a Selfie:</label>
-        <input type="file" accept="image/*" onChange={searchSelfie} />
-      </div>
+        {/* Bib Search Form */}
+        <form onSubmit={searchBib} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+          <input
+            type="text"
+            placeholder="Enter Bib Number"
+            value={bib}
+            onChange={(e) => setBib(e.target.value)}
+            style={{
+              flex: 1,
+              padding: '12px 16px',
+              fontSize: '16px',
+              borderRadius: '8px',
+              border: '1px solid #d1d5db',
+              outline: 'none',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              padding: '12px 24px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              backgroundColor: '#0284c7',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '16px',
+            }}
+          >
+            {loading ? 'Searching...' : 'Search Bib'}
+          </button>
+        </form>
 
-      {loading && <p>Processing search...</p>}
+        {/* Selfie Upload Box */}
+        <div
+          style={{
+            padding: '24px',
+            border: '2px dashed #cbd5e1',
+            borderRadius: '12px',
+            textAlign: 'center',
+            marginBottom: '32px',
+            backgroundColor: '#f8fafc',
+          }}
+        >
+          <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, fontSize: '16px', color: '#334155' }}>
+            Or Upload a Selfie / Face Photo:
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            disabled={!modelReady || loading}
+            onChange={searchSelfie}
+            style={{ fontSize: '15px', cursor: !modelReady || loading ? 'not-allowed' : 'pointer' }}
+          />
+        </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
-        {photos.map((src, i) => (
-          <img key={i} src={src} alt="Runner" style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '6px' }} />
-        ))}
-      </div>
-      {photos.length === 0 && !loading && <p style={{ color: '#888' }}>No photos found yet.</p>}
-    </main>
+        {/* Photos Grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: '16px',
+          }}
+        >
+          {photos.map((src, i) => (
+            <div
+              key={i}
+              style={{
+                borderRadius: '10px',
+                overflow: 'hidden',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                backgroundColor: '#f1f5f9',
+              }}
+            >
+              <img
+                src={src}
+                alt={`Photo ${i + 1}`}
+                style={{
+                  width: '100%',
+                  height: '240px',
+                  objectFit: 'cover',
+                  display: 'block',
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      </main>
+    </>
   );
 }
