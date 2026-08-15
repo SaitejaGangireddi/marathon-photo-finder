@@ -17,30 +17,31 @@ export async function POST(req) {
         .contains('bib_numbers', [bib]);
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      return NextResponse.json({ photos: [...new Set(data.map(d => d.image_url))] });
+      return NextResponse.json({ results: [...new Set(data.map(d => d.image_url))].map(url => ({ url })) });
     }
 
     if (type === 'face') {
       const { data, error } = await supabase.rpc('match_face', {
         query_embedding: embedding,
-        // 0.40 Cosine Distance: Strict boundary that rejects family lookalikes while matching group photos
-        match_threshold: 0.40,
+        // 0.46 Euclidean distance: strictly matches exact person and rejects strangers/family
+        match_threshold: 0.46,
         match_count: 50
       });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-      // Group by image_url and keep highest similarity score
+      // Calculate true calibrated confidence: 0 distance = 100%, 0.50 distance = 0%
       const photoMap = new Map();
       (data || []).forEach(item => {
-        if (!photoMap.has(item.image_url) || photoMap.get(item.image_url) < item.similarity) {
-          photoMap.set(item.image_url, item.similarity);
+        const rawScore = Math.max(0, Math.round((1 - (item.distance / 0.50)) * 100));
+        if (!photoMap.has(item.image_url) || photoMap.get(item.image_url) < rawScore) {
+          photoMap.set(item.image_url, rawScore);
         }
       });
 
-      const uniqueResults = Array.from(photoMap.entries()).map(([url, score]) => ({
+      const uniqueResults = Array.from(photoMap.entries()).map(([url, confidence]) => ({
         url,
-        confidence: Math.round(score * 100)
+        confidence
       }));
 
       return NextResponse.json({ results: uniqueResults });
